@@ -1,15 +1,6 @@
-<!-- PROJECT LOGO -->
-<br />
 <p align="center">
-    <img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" height=200 alt="Logo">
-  </a>
-  <h3 align="center">Noesys</h3>
-  <p align="center">
-    An open source server health monitoring application
-    <br />
-  </p>
+  <img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png" width="300" title="Noesys">
 </p>
-
 
 <!-- ABOUT THE PROJECT -->
 ## About
