@@ -20,7 +20,7 @@
 import 'dart:convert';
 import 'package:flutter/services.dart';
 
-String statusCodes;
+late String statusCodes;
 
 class Codes {
   String code;

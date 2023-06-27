@@ -60,7 +60,7 @@ class AboutScreen extends StatelessWidget {
                         style:
                             TextStyle(color: Color.fromRGBO(232, 53, 83, 1.0))),
                     onTap: () =>
-                        url_launcher.launch('https://github.com/aeri/noesys'),
+                        url_launcher.launchUrl(Uri.parse('https://github.com/aeri/noesys')),
                   ),
                 ],
               ),

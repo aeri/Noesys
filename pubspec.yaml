@@ -18,22 +18,22 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
 environment:
-  sdk: ">=2.7.0 <3.0.0"
+  sdk: '>=2.19.6 <3.0.0'
 
 dependencies:
 
-  dio: ^3.0.10
-  flutter_sparkline: ^0.1.0
-  url_launcher: ^5.7.2
-  fl_chart: ^0.11.1
-  connectivity: ^0.4.9+3
+  dio: ^5.2.1+1
+  chart_sparkline: ^1.0.13
+  url_launcher: ^6.1.6
+  #fl_chart: ^0.35.0
+  connectivity: ^3.0.6
+  flutter_local_notifications: ^9.9.1
   shared_preferences: any
-  string_validator: ^0.1.4
-  numberpicker: ^1.2.1
-  battery_optimization: ^0.1.0
-  holding_gesture: ^0.0.3
-  synchronized: ^2.2.0+2
-  flutter_local_notifications: ^1.4.4+4
+  string_validator: ^1.0.0
+  numberpicker: ^2.1.2
+  disable_battery_optimization: ^1.1.0+1
+  holding_gesture: ^1.1.0
+  synchronized: ^3.0.1
   flutter:
     sdk: flutter
 

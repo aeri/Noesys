@@ -58,13 +58,14 @@ class _AddScreen extends State<AddScreen> {
                       decoration: InputDecoration(
                           icon: Icon(Icons.flag), labelText: 'Server name'),
                       validator: (value) {
-                        if (value.isEmpty) {
+                        if (value == null) {
                           return 'Please enter a server name';
                         } else {
                           if (existServer(value.toLowerCase())) {
                             return 'The server already exists';
                           }
                         }
+                        return null;
                       },
                     ),
                     TextFormField(
@@ -72,10 +73,10 @@ class _AddScreen extends State<AddScreen> {
                       controller: serverController,
                       decoration: InputDecoration(
                           helperText: 'with the protocol',
-
-                          icon: Icon(Icons.link), labelText: 'Server URL/IP'),
+                          icon: Icon(Icons.link),
+                          labelText: 'Server URL/IP'),
                       validator: (value) {
-                        if (value.isEmpty ||
+                        if (value == null ||
                             (!isIP(value) &&
                                 !isURL(value, {
                                   'require_protocol': true,
@@ -83,16 +84,18 @@ class _AddScreen extends State<AddScreen> {
                                 }))) {
                           return 'Plase enter a valid URL/IP';
                         }
+                        return null;
                       },
                     ),
                     TextFormField(
                       controller: topicController,
                       decoration: InputDecoration(
-                          icon: Icon(Icons.cake), labelText: 'Topic'),
+                          icon: Icon(Icons.topic), labelText: 'Topic'),
                       validator: (value) {
-                        if (value.isEmpty) {
+                        if (value == null) {
                           return 'Please enter a valid topic';
                         }
+                        return null;
                       },
                     ),
                     Container(
@@ -117,9 +120,10 @@ class _AddScreen extends State<AddScreen> {
                         activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                         title: const Text('4xx'),
                         value: notifyOn["4xx"],
-                        onChanged: (bool val) => setState(() {
+                        onChanged: (bool? val) => setState(() {
                               notifyOn["4xx"] = val;
-                              if (val || notifyOn.containsValue(true)) {
+                              if ((val != null && val) ||
+                                  notifyOn.containsValue(true)) {
                                 notify = true;
                               } else {
                                 notify = false;
@@ -129,9 +133,10 @@ class _AddScreen extends State<AddScreen> {
                         activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                         title: const Text('5xx'),
                         value: notifyOn["5xx"],
-                        onChanged: (bool val) => setState(() {
+                        onChanged: (bool? val) => setState(() {
                               notifyOn["5xx"] = val;
-                              if (val || notifyOn.containsValue(true)) {
+                              if ((val != null && val) ||
+                                  notifyOn.containsValue(true)) {
                                 notify = true;
                               } else {
                                 notify = false;
@@ -141,9 +146,10 @@ class _AddScreen extends State<AddScreen> {
                         activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                         title: const Text('Timeout'),
                         value: notifyOn["0"],
-                        onChanged: (bool val) => setState(() {
+                        onChanged: (bool? val) => setState(() {
                               notifyOn["0"] = val;
-                              if (val || notifyOn.containsValue(true)) {
+                              if ((val != null && val) ||
+                                  notifyOn.containsValue(true)) {
                                 notify = true;
                               } else {
                                 notify = false;
@@ -152,11 +158,13 @@ class _AddScreen extends State<AddScreen> {
                     Container(
                         padding: const EdgeInsets.symmetric(
                             vertical: 16.0, horizontal: 16.0),
-                        child: RaisedButton(
-                            color: Color.fromRGBO(232, 53, 83, 1.0),
+                        child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Color.fromRGBO(232, 53, 83, 1.0),
+                            ),
                             onPressed: () {
                               final form = _formKey.currentState;
-                              if (form.validate()) {
+                              if (form != null && form.validate()) {
                                 form.save();
 
                                 String serverAccess = serverController.text;
@@ -178,8 +186,6 @@ class _AddScreen extends State<AddScreen> {
                                 writeServer(newServer);
 
                                 Navigator.pop(context, true);
-
-                                //_showDialog(context);
                               }
                             },
                             child: Text("Save",
@@ -188,11 +194,5 @@ class _AddScreen extends State<AddScreen> {
                 ),
               ),
             )));
-  }
-
-  _showDialog(BuildContext context) {
-    print(_formKey.currentState.toString);
-    Scaffold.of(context)
-        .showSnackBar(SnackBar(content: Text('Submitting form')));
   }
 }

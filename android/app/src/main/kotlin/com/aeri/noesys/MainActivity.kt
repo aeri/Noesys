@@ -1,4 +1,4 @@
-package com.aeri.noesys
+package cat.naval.noesys
 
 import io.flutter.embedding.android.FlutterActivity
 

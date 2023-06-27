@@ -17,7 +17,7 @@
   along with Noesys.  If not, see <https://www.gnu.org/licenses/>.
 */
 import 'dart:async';
-import 'package:battery_optimization/battery_optimization.dart';
+import 'package:disable_battery_optimization/disable_battery_optimization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:holding_gesture/holding_gesture.dart';
@@ -31,11 +31,10 @@ import 'package:noesys/utils/crawler.dart';
 import 'package:noesys/screens/new_screen.dart';
 import 'package:noesys/utils/sharedPref.dart';
 import 'package:numberpicker/numberpicker.dart';
-import 'new_screen.dart';
 import 'package:synchronized/synchronized.dart';
 
 class ListScreen extends StatefulWidget {
-  const ListScreen({Key key, this.title}) : super(key: key);
+  const ListScreen({required Key key, required this.title}) : super(key: key);
 
   final String title;
 
@@ -44,9 +43,9 @@ class ListScreen extends StatefulWidget {
 }
 
 class _ListScreenState extends State<ListScreen> {
-  Timer _timer;
+  late Timer _timer;
   int _refreshTime = 5;
-  List<Server> _servers;
+  List<Server>? _servers;
   final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
   final _lock = new Lock();
@@ -54,34 +53,31 @@ class _ListScreenState extends State<ListScreen> {
   SharedPref sharedPref = SharedPref();
 
   FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-  FlutterLocalNotificationsPlugin();
-
-
-  final snackBar = SnackBar(content: Text('Yay! A SnackBar!'));
+      FlutterLocalNotificationsPlugin();
 
   void checkNotifications(List<Server> serverList) {
     serverList.forEach((server) {
-      if (server.notify) {
-        if (server.notifyOn["4xx"] &&
+      if (server.notify && server.notifyOn != null) {
+        if (server.notifyOn!["4xx"] &&
             server.statusCode >= 400 &&
             server.statusCode < 500) {
           print(server.statusCode.toString() + ":" + server.url);
           showNotification(server.nameRaw, "4xx",
               server.statusCode.toString() + " detected in: " + server.name);
-        } else if (server.notifyOn["5xx"] &&
+        } else if (server.notifyOn!["5xx"] &&
             server.statusCode >= 500 &&
             server.statusCode < 600) {
           print(server.statusCode.toString() + ":" + server.url);
           showNotification(server.nameRaw, "5xx",
               server.statusCode.toString() + " detected in: " + server.name);
-        } else if (server.notifyOn["0"] && server.statusCode == 0) {
+        } else if (server.notifyOn!["0"] && server.statusCode == 0) {
           print("TIMEOUT" + ":" + server.url);
           showNotification(
               server.nameRaw, "Timeout", "Timeout detected in: " + server.name);
-        } else if (server.notifyOn["OK"] &&
+        } else if (server.notifyOn!["OK"] &&
             server.statusCode >= 200 &&
             server.statusCode <= 300) {
-          server.notifyOn["OK"] = false;
+          server.notifyOn!["OK"] = false;
           showNotification(
               server.nameRaw, "Online", "Server online again: " + server.name);
         } else {
@@ -91,8 +87,8 @@ class _ListScreenState extends State<ListScreen> {
     });
   }
 
-  Future<bool> _onBackPressed() {
-    return showDialog(
+  Future<bool> _onBackPressed() async {
+    return await showDialog(
         context: context,
         builder: (BuildContext context) {
           return AlertDialog(
@@ -100,13 +96,13 @@ class _ListScreenState extends State<ListScreen> {
             content: Text(
                 'If you close the application, the status of the servers cannot be checked and you will not receive notifications.'),
             actions: <Widget>[
-              FlatButton(
+              TextButton(
                 child: Text('NO'),
                 onPressed: () {
                   Navigator.of(context).pop(false);
                 },
               ),
-              FlatButton(
+              TextButton(
                 child: Text('YES'),
                 onPressed: () {
                   Navigator.of(context).pop(true);
@@ -134,16 +130,17 @@ class _ListScreenState extends State<ListScreen> {
             ),
           ),
           actions: <Widget>[
-            FlatButton(
+            TextButton(
               child: Text('Cancel'),
               onPressed: () {
                 Navigator.of(context).pop();
               },
             ),
-            FlatButton(
+            TextButton(
               child: Text('Change'),
-              onPressed: () {
-                BatteryOptimization.openBatteryOptimizationSettings();
+              onPressed: () async {
+                await DisableBatteryOptimization
+                    .showDisableBatteryOptimizationSettings();
                 Navigator.of(context).pop();
               },
             ),
@@ -157,39 +154,80 @@ class _ListScreenState extends State<ListScreen> {
     showDialog<int>(
         context: context,
         builder: (BuildContext context) {
-          return new NumberPickerDialog.integer(
-            minValue: 1,
-            maxValue: 300,
-            title: new Text("Seconds to refresh"),
-            initialIntegerValue: _refreshTime,
+          return AlertDialog(
+            title: Text("Refresh time"),
+            content: StatefulBuilder(builder: (context, SBsetState) {
+              return NumberPicker(
+                  selectedTextStyle: TextStyle(color: Colors.red),
+                  value: _refreshTime,
+                  minValue: 1,
+                  maxValue: 300,
+                  onChanged: (value) {
+                    SBsetState(() =>
+                        _refreshTime = value); //* to change on dialog state
+                  });
+            }),
+            actions: [
+              TextButton(
+                child: Text("OK"),
+                onPressed: () {
+                  setState(() {
+                    sharedPref.save("refreshTime", _refreshTime.toString());
+
+                    _timer.cancel();
+
+                    Duration xSeconds = Duration(seconds: _refreshTime);
+                    _timer = Timer.periodic(
+                      xSeconds,
+                      (Timer t) => _refresh(),
+                    );
+
+                    _refresh();
+                  });
+
+                  Navigator.of(context).pop();
+                },
+              )
+            ],
           );
-        }).then((int value) {
-      if (value != null) {
-        setState(() {
-          _refreshTime = value;
-
-          sharedPref.save("refreshTime", _refreshTime.toString());
-
-          _timer.cancel();
-
-          Duration xSeconds = Duration(seconds: _refreshTime);
-          _timer = Timer.periodic(
-            xSeconds,
-                (Timer t) => _refresh(),
-          );
-
-          _refresh();
         });
+  }
+
+  Future<void> checkBatteryOpt() async {
+    bool? isBatteryOptimizationDisabled =
+        await DisableBatteryOptimization.isBatteryOptimizationDisabled;
+
+    setState(() {
+      if (isBatteryOptimizationDisabled != null &&
+          isBatteryOptimizationDisabled) {
+        // Igonring Battery Optimization
+      } else {
+        _showBatteryInfo();
       }
     });
+  }
+
+  Future<void> startNotifications() async {
+// initialise the plugin. app_icon needs to be a added as a drawable resource to the Android head project
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('noesys');
+
+    final InitializationSettings initializationSettings =
+        InitializationSettings(android: initializationSettingsAndroid);
+
+    await flutterLocalNotificationsPlugin.initialize(initializationSettings,
+        onSelectNotification: onSelectNotification);
+
+    await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()?.requestPermission();
   }
 
   @override
   void initState() {
     super.initState();
+    startNotifications();
     loadServerList();
     loadData();
-
 
     sharedPref.read("refreshTime").then((result) {
       if (result == null) {
@@ -201,44 +239,31 @@ class _ListScreenState extends State<ListScreen> {
       Duration xSeconds = Duration(seconds: _refreshTime);
       _timer = Timer.periodic(
         xSeconds,
-            (Timer t) => _refresh(),
+        (Timer t) => _refresh(),
       );
 
       setState(() {});
     });
 
-    BatteryOptimization.isIgnoringBatteryOptimizations().then((onValue) {
-      setState(() {
-        if (onValue) {
-          // Igonring Battery Optimization
-        } else {
-          _showBatteryInfo();
-        }
-      });
-    });
+    checkBatteryOpt();
 
-    var initializationSettingsAndroid = AndroidInitializationSettings('noesys');
-    var initializationSettingsIOs = IOSInitializationSettings();
-    var initSetttings = InitializationSettings(
-        initializationSettingsAndroid, initializationSettingsIOs);
-
-    flutterLocalNotificationsPlugin.initialize(initSetttings,
-        onSelectNotification: onSelectNotification);
-
-    _servers = List<Server>();
+    _servers = <Server>[];
 
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => _refreshIndicatorKey.currentState.show());
+        .addPostFrameCallback((_) => _refreshIndicatorKey.currentState?.show());
   }
 
-  Future onSelectNotification(String payload) {
-    Server srv = _servers.firstWhere(
-            (server) => server.nameRaw.contains(payload),
-        orElse: () => null);
-
-    if (srv != null) {
-      Navigator.push(context,
-          MaterialPageRoute(builder: (context) => DetailScreen(server: srv)));
+  Future<void> onSelectNotification(String? payload) async {
+    if (_servers != null && payload != null) {
+      var serverFiltered =
+          _servers!.where((server) => server.nameRaw.contains(payload));
+      if (serverFiltered.length > 0) {
+        Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) =>
+                    DetailScreen(server: serverFiltered.first)));
+      }
     }
   }
 
@@ -280,7 +305,6 @@ class _ListScreenState extends State<ListScreen> {
     final topAppBar = AppBar(
       backgroundColor: Theme.of(context).primaryColor,
       title: Text("Noesys"),
-
       actions: <Widget>[
         IconButton(
           icon: Icon(
@@ -289,9 +313,8 @@ class _ListScreenState extends State<ListScreen> {
           ),
           onPressed: () {
             Navigator.push(context,
-                MaterialPageRoute(builder: (context) => AddScreen()))
+                    MaterialPageRoute(builder: (context) => AddScreen()))
                 .then((value) {
-              Scaffold.of(context).showSnackBar(snackBar);
               setState(() {
                 _refresh();
               });
@@ -304,7 +327,7 @@ class _ListScreenState extends State<ListScreen> {
           enableHapticFeedback: true,
           child: IconButton(
             icon: Icon(
-              Icons.toys,
+              Icons.flip_camera_android_outlined,
               color: Colors.white,
             ),
             onPressed: () {
@@ -316,90 +339,90 @@ class _ListScreenState extends State<ListScreen> {
     );
 
     ListTile makeListTile(Server server) => ListTile(
-      key: Key('ListTileServers'),
-      contentPadding:
-      EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
-      leading: Container(
-        padding: EdgeInsets.only(right: 12.0),
-        decoration: BoxDecoration(
-          border: Border(
-            right: BorderSide(width: 1.0, color: Colors.white24),
-          ),
-        ),
-        child: server.getStatusIcon(),
-      ),
-      title: Text(
-        server.name,
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-      ),
-      subtitle: Row(
-        children: <Widget>[
-          Expanded(
-            flex: 1,
-            child: Container(
-              child: LinearProgressIndicator(
-                backgroundColor: Color.fromRGBO(209, 224, 224, 0.2),
-                value: server.getUptime(),
-                valueColor: AlwaysStoppedAnimation(server.getStatusColor()),
+          key: Key('ListTileServers'),
+          contentPadding:
+              EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+          leading: Container(
+            padding: EdgeInsets.only(right: 12.0),
+            decoration: BoxDecoration(
+              border: Border(
+                right: BorderSide(width: 1.0, color: Colors.white24),
               ),
             ),
+            child: server.getStatusIcon(),
           ),
-          Expanded(
-            flex: 4,
-            child: Padding(
-              padding: EdgeInsets.only(left: 10.0),
-              child: Text("${server.country} ${server.url}",
-                  style: TextStyle(color: Colors.white)),
-            ),
-          )
-        ],
-      ),
-      trailing: Column(
-        children: <Widget>[
-          Text(server.statusCode.toString(),
-              style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold)),
-          Text(server.getStatusCode(),
-              style: TextStyle(color: server.getStatusColor())),
-        ],
-      ),
-      onTap: () {
-        Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (context) => DetailScreen(server: server)))
-            .then((value) {
-          setState(() {
-            _refresh();
-          });
-        });
-      },
-    );
+          title: Text(
+            server.name,
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          subtitle: Row(
+            children: <Widget>[
+              Expanded(
+                flex: 1,
+                child: Container(
+                  child: LinearProgressIndicator(
+                    backgroundColor: Color.fromRGBO(209, 224, 224, 0.2),
+                    value: server.getUptime(),
+                    valueColor: AlwaysStoppedAnimation(server.getStatusColor()),
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 4,
+                child: Padding(
+                  padding: EdgeInsets.only(left: 10.0),
+                  child: Text("${server.country} ${server.url}",
+                      style: TextStyle(color: Colors.white)),
+                ),
+              )
+            ],
+          ),
+          trailing: Column(
+            children: <Widget>[
+              Text(server.statusCode.toString(),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold)),
+              Text(server.getStatusCode(),
+                  style: TextStyle(color: server.getStatusColor())),
+            ],
+          ),
+          onTap: () {
+            Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => DetailScreen(server: server)))
+                .then((value) {
+              setState(() {
+                _refresh();
+              });
+            });
+          },
+        );
 
     Card makeCard(Server server) => Card(
-      elevation: 8.0,
-      margin: EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
-      child: Container(
-        decoration: BoxDecoration(color: Color.fromRGBO(16, 10, 6, .9)),
-        child: makeListTile(server),
-      ),
-    );
+          elevation: 8.0,
+          margin: EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
+          child: Container(
+            decoration: BoxDecoration(color: Color.fromRGBO(16, 10, 6, .9)),
+            child: makeListTile(server),
+          ),
+        );
 
     final makeBody = Container(
-        child: (_servers.isNotEmpty)
+        child: (_servers != null && _servers!.isNotEmpty)
             ? ListView.builder(
-          scrollDirection: Axis.vertical,
-          shrinkWrap: true,
-          itemCount: _servers.length,
-          itemBuilder: (BuildContext context, int index) {
-            return makeCard(_servers[index]);
-          },
-        )
+                scrollDirection: Axis.vertical,
+                shrinkWrap: true,
+                itemCount: _servers!.length,
+                itemBuilder: (BuildContext context, int index) {
+                  return makeCard(_servers![index]);
+                },
+              )
             : Center(
-          child: Text("EMPTY SERVER LIST"),
-        ));
+                child: Text("EMPTY SERVER LIST"),
+              ));
 
     return Scaffold(
       backgroundColor: Theme.of(context).primaryColor,
@@ -416,14 +439,15 @@ class _ListScreenState extends State<ListScreen> {
   }
 
   showNotification(String nameRaw, String channel, String message) async {
-    var android = new AndroidNotificationDetails(
-        'id', 'Server status', 'Notify about server status responses',
-        priority: Priority.High,
-        onlyAlertOnce: true,
-        importance: Importance.Max);
-    var iOS = new IOSNotificationDetails();
-    var platform = new NotificationDetails(android, iOS);
-    await flutterLocalNotificationsPlugin.show(0, channel, message, platform,
-        payload: nameRaw);
+    const AndroidNotificationDetails androidNotificationDetails =
+        AndroidNotificationDetails('problem', 'Server status',
+            channelDescription: 'Notify about server status responses',
+            importance: Importance.max,
+            priority: Priority.high,
+            ticker: 'Noesys notification');
+    const NotificationDetails notificationDetails =
+        NotificationDetails(android: androidNotificationDetails);
+    await flutterLocalNotificationsPlugin
+        .show(0, channel, message, notificationDetails, payload: nameRaw);
   }
 }
