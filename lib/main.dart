@@ -18,7 +18,7 @@
 */
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:noesys/screens/list_screen.dart';
+import 'package:noesys/screens/main_screen.dart';
 
 void main() => runApp(L2ssApp());
 

@@ -17,14 +17,13 @@
   along with Noesys.  If not, see <https://www.gnu.org/licenses/>.
 */
 import 'dart:async';
+import 'package:chart_sparkline/chart_sparkline.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_sparkline/flutter_sparkline.dart';
 import 'package:noesys/models/server.dart';
 import 'package:noesys/screens/edit_screen.dart';
 import 'package:noesys/utils/crawler.dart' as util;
 import 'package:noesys/utils/crawler.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
-
 
 Future<void> _deleteDialog(BuildContext context, Server server) async {
   return showDialog<void>(
@@ -42,13 +41,13 @@ Future<void> _deleteDialog(BuildContext context, Server server) async {
           ),
         ),
         actions: <Widget>[
-          FlatButton(
+          TextButton(
             child: Text('Cancel'),
             onPressed: () {
               Navigator.of(context).pop();
             },
           ),
-          FlatButton(
+          TextButton(
             child: Text('Delete'),
             onPressed: () {
               util.deleteServer(server.nameRaw);
@@ -63,7 +62,7 @@ Future<void> _deleteDialog(BuildContext context, Server server) async {
 }
 
 class DetailScreen extends StatefulWidget {
-  const DetailScreen({Key key, this.server}) : super(key: key);
+  const DetailScreen({required this.server});
 
   final Server server;
 
@@ -72,19 +71,15 @@ class DetailScreen extends StatefulWidget {
 }
 
 class _DetailScreen extends State<DetailScreen> {
-  _DetailScreen({this.server});
+  _DetailScreen({required this.server});
 
   Server server;
-  Timer _timerDetail;
-  List<double> _data;
+  late Timer _timerDetail;
+  List<double> _data = [];
   bool _alarm = false;
 
   @override
   void initState() {
-    if (server == null) {
-      return;
-    }
-
     _data = [server.responseTime + 0.0, server.responseTime + 0.1];
     if (server.responseTime > 0) {
       _alarm = false;
@@ -117,13 +112,16 @@ class _DetailScreen extends State<DetailScreen> {
   }
 
   void alarmOnPressed() {
-    server.notifyOn["OK"] = true;
-    server.notifyOn["0"] = false;
+    if (server.notifyOn != null) {
+      server.notifyOn!["OK"] = true;
+      server.notifyOn!["0"] = false;
+    }
+
     updateServer(server.nameRaw, server);
     setState(() => _alarm = false);
   }
 
-  Future<Server> _fetchData({String serverNameRaw}) async {
+  Future<Server> _fetchData() async {
     return util.refreshDataServer(server.nameRaw);
   }
 
@@ -188,10 +186,8 @@ class _DetailScreen extends State<DetailScreen> {
         ),
         InkWell(
           child: Text(server.url,
-              style:
-              TextStyle(color: Colors.white70, fontSize: 25.0)),
-          onTap: () =>
-              url_launcher.launch(server.url),
+              style: TextStyle(color: Colors.white70, fontSize: 25.0)),
+          onTap: () => url_launcher.launchUrl(Uri.parse(server.url)),
         ),
         SizedBox(height: 10.0),
         Row(
@@ -238,11 +234,13 @@ class _DetailScreen extends State<DetailScreen> {
 
     final alarmButton = Padding(
         padding: EdgeInsets.symmetric(vertical: 16.0),
-        child: RaisedButton(
+        child: ElevatedButton(
           onPressed: alarmOnPressed, //() => {},
-          color: Color.fromRGBO(232, 53, 83, 1.0),
-          child: Text("NOTIFY WHEN ONLINE",
-              style: TextStyle(color: Colors.white)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Color.fromRGBO(232, 53, 83, 1.0),
+          ),
+          child:
+              Text("NOTIFY WHEN ONLINE", style: TextStyle(color: Colors.white)),
         ));
 
     final sparklineContent = Sparkline(
@@ -270,7 +268,6 @@ class _DetailScreen extends State<DetailScreen> {
               textAlign: TextAlign.center,
             ),
           ];
-          break;
         case false:
         default:
           return <Widget>[
@@ -278,7 +275,6 @@ class _DetailScreen extends State<DetailScreen> {
             SizedBox(height: 10.0),
             bottomContentText,
           ];
-          break;
       }
     }
 

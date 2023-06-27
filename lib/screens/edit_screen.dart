@@ -22,7 +22,7 @@ import 'package:string_validator/string_validator.dart';
 import 'package:noesys/models/server.dart';
 
 class EditScreen extends StatefulWidget {
-  const EditScreen({Key key, this.server}) : super(key: key);
+  const EditScreen({required this.server});
 
   final Server server;
 
@@ -31,7 +31,7 @@ class EditScreen extends StatefulWidget {
 }
 
 class _EditScreen extends State<EditScreen> {
-  _EditScreen({this.server});
+  _EditScreen({required this.server});
 
   Server server;
 
@@ -40,11 +40,12 @@ class _EditScreen extends State<EditScreen> {
   final nameController = TextEditingController();
   final serverController = TextEditingController();
   final topicController = TextEditingController();
-  bool notify;
-  Map notifyOn;
+  bool notify = true;
+  Map? notifyOn;
 
   @override
   void initState() {
+    super.initState();
     notify = server.notify;
     notifyOn = server.notifyOn;
     nameController.text = server.name;
@@ -82,7 +83,7 @@ class _EditScreen extends State<EditScreen> {
                       decoration: InputDecoration(
                           icon: Icon(Icons.link), labelText: 'Server URL/IP'),
                       validator: (value) {
-                        if (value.isEmpty ||
+                        if (value == null ||
                             (!isIP(value) &&
                                 !isURL(value, {
                                   'require_protocol': true,
@@ -90,16 +91,18 @@ class _EditScreen extends State<EditScreen> {
                                 }))) {
                           return 'Plase enter a valid URL/IP';
                         }
+                        return null;
                       },
                     ),
                     TextFormField(
                       controller: topicController,
                       decoration: InputDecoration(
-                          icon: Icon(Icons.cake), labelText: 'Topic'),
+                          icon: Icon(Icons.topic), labelText: 'Topic'),
                       validator: (value) {
-                        if (value.isEmpty) {
+                        if (value == null) {
                           return 'Please enter a valid topic';
                         }
+                        return null;
                       },
                     ),
                     Container(
@@ -113,7 +116,10 @@ class _EditScreen extends State<EditScreen> {
                       value: notify,
                       onChanged: (bool val) => setState(() {
                         notify = val;
-                        notifyOn.forEach((k, v) => notifyOn[k] = val);
+                        final notifyOn = this.notifyOn;
+                        if (notifyOn != null) {
+                          notifyOn.forEach((k, v) => notifyOn[k] = val);
+                        }
                       }),
                     ),
                     Container(
@@ -123,47 +129,58 @@ class _EditScreen extends State<EditScreen> {
                     CheckboxListTile(
                         activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                         title: const Text('4xx'),
-                        value: notifyOn["4xx"],
-                        onChanged: (bool val) => setState(() {
-                              notifyOn["4xx"] = val;
-                              if (val || notifyOn.containsValue(true)) {
-                                notify = true;
-                              } else {
-                                notify = false;
+                        value: notifyOn != null ? notifyOn!["4xx"] : -1,
+                        onChanged: (bool? val) => setState(() {
+                              if (notifyOn != null) {
+                                notifyOn!["4xx"] = val;
+                                if ((val != null && val) ||
+                                    notifyOn!.containsValue(true)) {
+                                  notify = true;
+                                } else {
+                                  notify = false;
+                                }
                               }
                             })),
                     CheckboxListTile(
                         activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                         title: const Text('5xx'),
-                        value: notifyOn["5xx"],
-                        onChanged: (bool val) => setState(() {
-                              notifyOn["5xx"] = val;
-                              if (val || notifyOn.containsValue(true)) {
-                                notify = true;
-                              } else {
-                                notify = false;
+                        value: notifyOn != null ? notifyOn!["5xx"] : -1,
+                        onChanged: (bool? val) => setState(() {
+                              if (notifyOn != null) {
+                                notifyOn!["5xx"] = val;
+                                if ((val != null && val) ||
+                                    notifyOn!.containsValue(true)) {
+                                  notify = true;
+                                } else {
+                                  notify = false;
+                                }
                               }
                             })),
                     CheckboxListTile(
                         activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                         title: const Text('Timeout'),
-                        value: notifyOn["0"],
-                        onChanged: (bool val) => setState(() {
-                              notifyOn["0"] = val;
-                              if (val || notifyOn.containsValue(true)) {
-                                notify = true;
-                              } else {
-                                notify = false;
+                        value: notifyOn != null ? notifyOn!["0"] : -1,
+                        onChanged: (bool? val) => setState(() {
+                              if (notifyOn != null) {
+                                notifyOn!["0"] = val;
+                                if ((val != null && val) ||
+                                    notifyOn!.containsValue(true)) {
+                                  notify = true;
+                                } else {
+                                  notify = false;
+                                }
                               }
                             })),
                     Container(
                         padding: const EdgeInsets.symmetric(
                             vertical: 16.0, horizontal: 16.0),
-                        child: RaisedButton(
-                            color: Color.fromRGBO(232, 53, 83, 1.0),
+                        child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Color.fromRGBO(232, 53, 83, 1.0),
+                            ),
                             onPressed: () {
                               final form = _formKey.currentState;
-                              if (form.validate()) {
+                              if (form != null && form.validate()) {
                                 form.save();
 
                                 String serverAccess = serverController.text;
@@ -186,8 +203,6 @@ class _EditScreen extends State<EditScreen> {
 
                                 Navigator.pop(context, true);
                                 Navigator.pop(context, true);
-
-                                //_showDialog(context);
                               }
                             },
                             child: Text("Save",
@@ -196,11 +211,5 @@ class _EditScreen extends State<EditScreen> {
                 ),
               ),
             )));
-  }
-
-  _showDialog(BuildContext context) {
-    print(_formKey.currentState.toString);
-    Scaffold.of(context)
-        .showSnackBar(SnackBar(content: Text('Submitting form')));
   }
 }

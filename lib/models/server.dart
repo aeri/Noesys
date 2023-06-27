@@ -24,20 +24,23 @@ import 'package:noesys/screens/status_codes.dart';
 
 class Server {
   Server(this.name, this.nameRaw, this.url, this.country,
-      [this.statusCode = 0, this.responseTime = 0, this.notify, this.notifyOn]);
+      [this.statusCode = 0,
+      this.responseTime = 0,
+      this.notify = true,
+      this.notifyOn]);
 
   String name;
   String nameRaw;
   String url;
   String country;
 
-  int up;
-  int down;
+  int up = -1;
+  int down = -1;
 
-  int statusCode;
-  int responseTime;
-  bool notify = true;
-  Map notifyOn = {
+  int statusCode = 0;
+  int responseTime = 0;
+  bool notify;
+  Map? notifyOn = {
     "OK": false,
     "4xx": true,
     "5xx": true,
@@ -83,7 +86,7 @@ class Server {
     return url;
   }
 
-  Color getStatusColor() {
+  Color? getStatusColor() {
     if (statusCode <= 0)
       return Colors.grey[400];
     else if (statusCode >= 400 && statusCode < 500)
