@@ -38,23 +38,29 @@ class Codes {
   }
 }
 
-void loadData() async {
+Future<void> loadData() async {
   statusCodes = await rootBundle.loadString('assets/status-codes.json');
 }
 
-String getPhrase(int code) {
-  if (code == 0) {
-    return "TIMEOUT";
+String getPhrase(int code, bool enabled) {
+  if (enabled) {
+    if (code == 0) {
+      return "TIMEOUT";
+    } else if (code == -1) {
+      return "WAIT";
+    } else {
+      var codeList = jsonDecode(statusCodes) as List;
+      List<Codes> codes =
+          codeList.map((tagJson) => Codes.fromJson(tagJson)).toList();
+
+      Codes findCodeName(String id) =>
+          codes.firstWhere((book) => book.code == id);
+
+      Codes codeName = findCodeName(code.toString());
+
+      return codeName.phrase;
+    }
   } else {
-    var codeList = jsonDecode(statusCodes) as List;
-    List<Codes> codes =
-        codeList.map((tagJson) => Codes.fromJson(tagJson)).toList();
-
-    Codes findCodeName(String id) =>
-        codes.firstWhere((book) => book.code == id);
-
-    Codes codeName = findCodeName(code.toString());
-
-    return codeName.phrase;
+    return "STOP";
   }
 }

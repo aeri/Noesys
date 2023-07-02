@@ -19,10 +19,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:noesys/screens/main_screen.dart';
+import 'package:noesys/screens/status_codes.dart';
+import 'package:noesys/utils/sharedPref.dart';
 
-void main() => runApp(L2ssApp());
+void main() async {
+  // Required for async calls in `main`
+  WidgetsFlutterBinding.ensureInitialized();
 
-class L2ssApp extends StatelessWidget {
+  // Initialize SharedPrefs instance.
+  await SharedPref.init();
+
+  await loadData();
+
+  runApp(NoesysApp());
+}
+
+class NoesysApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);

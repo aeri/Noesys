@@ -18,21 +18,31 @@
 */
 
 import 'package:flutter/material.dart';
-import 'package:noesys/utils/crawler.dart';
 import 'package:string_validator/string_validator.dart';
 import 'package:noesys/models/server.dart';
 
-class AddScreen extends StatefulWidget {
+import '../utils/sharedPref.dart';
+
+class ManageScreen extends StatefulWidget {
+  const ManageScreen({this.server});
+
+  final Server? server;
+
   @override
-  _AddScreen createState() => _AddScreen();
+  _ManageScreen createState() => _ManageScreen(server);
 }
 
-class _AddScreen extends State<AddScreen> {
+class _ManageScreen extends State<ManageScreen> {
+  _ManageScreen(this.existingServer);
+
+  final Server? existingServer;
+
   final _formKey = GlobalKey<FormState>();
 
   final nameController = TextEditingController();
   final serverController = TextEditingController();
   final topicController = TextEditingController();
+  bool enabled = true;
   bool notify = true;
   Map notifyOn = {
     "OK": false,
@@ -42,9 +52,25 @@ class _AddScreen extends State<AddScreen> {
   };
 
   @override
+  void initState() {
+    super.initState();
+
+    if (existingServer != null) {
+      notify = existingServer!.notify;
+      enabled = existingServer!.enabled;
+      notifyOn = existingServer!.notifyIn!;
+      nameController.text = existingServer!.name;
+      serverController.text = existingServer!.url;
+      topicController.text = existingServer!.topic;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: Text('Add server')),
+        appBar: AppBar(
+            title:
+                Text(existingServer == null ? 'Add server' : 'Update server')),
         body: Container(
             padding:
                 const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
@@ -54,25 +80,27 @@ class _AddScreen extends State<AddScreen> {
                 child: ListView(
                   children: <Widget>[
                     TextFormField(
+                      enabled: existingServer == null,
                       controller: nameController,
                       decoration: InputDecoration(
                           icon: Icon(Icons.flag), labelText: 'Server name'),
                       validator: (value) {
-                        if (value == null) {
+                        if (value == null || value.isEmpty) {
                           return 'Please enter a server name';
+                        } else if (SharedPref.existServer(
+                                value.toLowerCase()) &&
+                            existingServer == null) {
+                          return 'The server already exists';
                         } else {
-                          if (existServer(value.toLowerCase())) {
-                            return 'The server already exists';
-                          }
+                          return null;
                         }
-                        return null;
                       },
                     ),
                     TextFormField(
                       keyboardType: TextInputType.url,
                       controller: serverController,
                       decoration: InputDecoration(
-                          helperText: 'with the protocol',
+                          helperText: 'with protocol',
                           icon: Icon(Icons.link),
                           labelText: 'Server URL/IP'),
                       validator: (value) {
@@ -82,7 +110,7 @@ class _AddScreen extends State<AddScreen> {
                                   'require_protocol': true,
                                   'protocols': ['http', 'https']
                                 }))) {
-                          return 'Plase enter a valid URL/IP';
+                          return 'Please enter a valid URL/IP';
                         }
                         return null;
                       },
@@ -100,12 +128,25 @@ class _AddScreen extends State<AddScreen> {
                     ),
                     Container(
                       padding: const EdgeInsets.fromLTRB(0, 50, 0, 20),
+                      child: Text('General'),
+                    ),
+                    SwitchListTile(
+                      activeColor: Color.fromRGBO(232, 53, 83, 1.0),
+                      title: const Text('Enabled'),
+                      secondary: const Icon(Icons.power_settings_new_sharp),
+                      value: enabled,
+                      onChanged: (bool val) => setState(() {
+                        enabled = val;
+                      }),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(0, 50, 0, 20),
                       child: Text('Notifications'),
                     ),
                     SwitchListTile(
                       activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                       title: const Text('Allow notifications'),
-                      secondary: const Icon(Icons.lightbulb_outline),
+                      secondary: const Icon(Icons.notification_important),
                       value: notify,
                       onChanged: (bool val) => setState(() {
                         notify = val;
@@ -116,6 +157,19 @@ class _AddScreen extends State<AddScreen> {
                       padding: const EdgeInsets.fromLTRB(0, 10, 0, 20),
                       child: Text('Notify on'),
                     ),
+                    CheckboxListTile(
+                        activeColor: Color.fromRGBO(232, 53, 83, 1.0),
+                        title: const Text('OK (200)'),
+                        value: notifyOn["OK"],
+                        onChanged: (bool? val) => setState(() {
+                          notifyOn["OK"] = val;
+                          if ((val != null && val) ||
+                              notifyOn.containsValue(true)) {
+                            notify = true;
+                          } else {
+                            notify = false;
+                          }
+                        })),
                     CheckboxListTile(
                         activeColor: Color.fromRGBO(232, 53, 83, 1.0),
                         title: const Text('4xx'),
@@ -162,7 +216,7 @@ class _AddScreen extends State<AddScreen> {
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Color.fromRGBO(232, 53, 83, 1.0),
                             ),
-                            onPressed: () {
+                            onPressed: () async {
                               final form = _formKey.currentState;
                               if (form != null && form.validate()) {
                                 form.save();
@@ -178,14 +232,31 @@ class _AddScreen extends State<AddScreen> {
                                     nameController.text.toLowerCase(),
                                     serverAccess,
                                     topicController.text,
-                                    0,
+                                    -1,
                                     0,
                                     notify,
-                                    notifyOn);
+                                    notifyOn,
+                                    enabled);
 
-                                writeServer(newServer);
+                                if (existingServer != null) {
+                                  await SharedPref.updateServer(
+                                      newServer.nameRaw, newServer);
+                                } else {
+                                  await SharedPref.addServer(newServer);
+                                }
 
                                 Navigator.pop(context, true);
+                              } else {
+                                const snackBar = SnackBar(
+                                  content: Text(
+                                    'Error validating form',
+                                    style: TextStyle(color: Colors.black),
+                                  ),
+                                  backgroundColor: Colors.yellow,
+                                );
+
+                                ScaffoldMessenger.of(context)
+                                    .showSnackBar(snackBar);
                               }
                             },
                             child: Text("Save",

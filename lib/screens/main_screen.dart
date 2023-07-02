@@ -17,21 +17,88 @@
   along with Noesys.  If not, see <https://www.gnu.org/licenses/>.
 */
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
 import 'package:disable_battery_optimization/disable_battery_optimization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:holding_gesture/holding_gesture.dart';
 import 'package:noesys/models/server.dart';
 import 'package:noesys/screens/about_screen.dart';
 import 'package:noesys/screens/detail_screen.dart';
-import 'package:noesys/screens/status_codes.dart';
 import 'package:noesys/utils/crawler.dart' as util;
-import 'package:noesys/utils/crawler.dart';
 
-import 'package:noesys/screens/new_screen.dart';
+import 'package:noesys/screens/manage_screen.dart';
 import 'package:noesys/utils/sharedPref.dart';
 import 'package:numberpicker/numberpicker.dart';
-import 'package:synchronized/synchronized.dart';
+
+import '../utils/notify.dart';
+
+// The callback function should always be a top-level function.
+@pragma('vm:entry-point')
+void startCallback() {
+  // The setTaskHandler function must be called to handle the task in the background.
+  FlutterForegroundTask.setTaskHandler(UptimeHandler());
+}
+
+class UptimeHandler extends TaskHandler {
+  SendPort? _sendPort;
+  int _eventCount = 0;
+
+  Future<List<Server>> _fetchData() async {
+    var savedList = await SharedPref.reloadServerList();
+    List<Server> checkedList = await util.refreshDataServers(savedList);
+
+    return checkedList;
+  }
+
+  // Called when the task is started.
+  @override
+  Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
+    _sendPort = sendPort;
+
+    await SharedPref.init();
+  }
+
+  // Called every [interval] milliseconds in [ForegroundTaskOptions].
+  @override
+  Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
+    await _fetchData().then((serversResult) {
+      var servers = jsonEncode(serversResult);
+      sendPort?.send(servers);
+    });
+
+    // Send data to the main isolate.
+    sendPort?.send(_eventCount);
+    _eventCount++;
+  }
+
+  // Called when the notification button on the Android platform is pressed.
+  @override
+  Future<void> onDestroy(DateTime timestamp, SendPort? sendPort) async {
+    print('onDestroy');
+  }
+
+  // Called when the notification button on the Android platform is pressed.
+  @override
+  void onNotificationButtonPressed(String id) {
+    print('onNotificationButtonPressed >> $id');
+  }
+
+  // Called when the notification itself on the Android platform is pressed.
+  //
+  // "android.permission.SYSTEM_ALERT_WINDOW" permission must be granted for
+  // this function to be called.
+  @override
+  void onNotificationPressed() {
+    // Note that the app will only route to "/resume-route" when it is exited so
+    // it will usually be necessary to send a message through the send port to
+    // signal it to restore state when the app is already started.
+    FlutterForegroundTask.launchApp("/resume-route");
+    _sendPort?.send('onNotificationPressed');
+  }
+}
 
 class ListScreen extends StatefulWidget {
   const ListScreen({required Key key, required this.title}) : super(key: key);
@@ -44,50 +111,128 @@ class ListScreen extends StatefulWidget {
 
 class _ListScreenState extends State<ListScreen> {
   late Timer _timer;
-  int _refreshTime = 5;
-  List<Server>? _servers;
+  int _refreshTime = 10;
+  List<Server> _servers = [];
   final _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
 
-  final _lock = new Lock();
+  ReceivePort? _receivePort;
 
-  SharedPref sharedPref = SharedPref();
+  void _initForegroundTask() {
+    FlutterForegroundTask.init(
+      androidNotificationOptions: AndroidNotificationOptions(
+        channelId: 'notification_channel_id',
+        channelName: 'Foreground Notification',
+        channelDescription:
+            'This notification appears when the foreground service is running.',
+        channelImportance: NotificationChannelImportance.LOW,
+        priority: NotificationPriority.LOW,
+        iconData: const NotificationIconData(
+          resType: ResourceType.drawable,
+          resPrefix: ResourcePrefix.ic,
+          name: 'noesys',
+        ),
+      ),
+      iosNotificationOptions: const IOSNotificationOptions(
+        showNotification: true,
+        playSound: false,
+      ),
+      foregroundTaskOptions: ForegroundTaskOptions(
+        interval: _refreshTime * 1000,
+        isOnceEvent: false,
+        autoRunOnBoot: true,
+        allowWakeLock: true,
+        allowWifiLock: true,
+      ),
+    );
+  }
 
-  FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-      FlutterLocalNotificationsPlugin();
+  Future<void> _requestPermissionForAndroid() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
 
-  void checkNotifications(List<Server> serverList) {
-    serverList.forEach((server) {
-      if (server.notify && server.notifyOn != null) {
-        if (server.notifyOn!["4xx"] &&
-            server.statusCode >= 400 &&
-            server.statusCode < 500) {
-          print(server.statusCode.toString() + ":" + server.url);
-          showNotification(server.nameRaw, "4xx",
-              server.statusCode.toString() + " detected in: " + server.name);
-        } else if (server.notifyOn!["5xx"] &&
-            server.statusCode >= 500 &&
-            server.statusCode < 600) {
-          print(server.statusCode.toString() + ":" + server.url);
-          showNotification(server.nameRaw, "5xx",
-              server.statusCode.toString() + " detected in: " + server.name);
-        } else if (server.notifyOn!["0"] && server.statusCode == 0) {
-          print("TIMEOUT" + ":" + server.url);
-          showNotification(
-              server.nameRaw, "Timeout", "Timeout detected in: " + server.name);
-        } else if (server.notifyOn!["OK"] &&
-            server.statusCode >= 200 &&
-            server.statusCode <= 300) {
-          server.notifyOn!["OK"] = false;
-          showNotification(
-              server.nameRaw, "Online", "Server online again: " + server.name);
+    // Android 12 or higher, there are restrictions on starting a foreground service.
+    //
+    // To restart the service on device reboot or unexpected problem, you need to allow below permission.
+    if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+      // This function requires `android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission.
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    }
+
+    // Android 13 and higher, you need to allow notification permission to expose foreground service notification.
+    final NotificationPermission notificationPermissionStatus =
+        await FlutterForegroundTask.checkNotificationPermission();
+    if (notificationPermissionStatus != NotificationPermission.granted) {
+      await FlutterForegroundTask.requestNotificationPermission();
+    }
+  }
+
+  Future<bool> _stopForegroundTask() {
+    return FlutterForegroundTask.stopService();
+  }
+
+  Future<bool> _startForegroundTask() async {
+    // You can save data using the saveData function.
+    //await FlutterForegroundTask.saveData(key: 'customData', value: 'hello');
+
+    // Register the receivePort before starting the service.
+    final ReceivePort? receivePort = FlutterForegroundTask.receivePort;
+    final bool isRegistered = _registerReceivePort(receivePort);
+    if (!isRegistered) {
+      print('Failed to register receivePort!');
+      return false;
+    }
+
+    if (await FlutterForegroundTask.isRunningService) {
+      return FlutterForegroundTask.restartService();
+    } else {
+      return FlutterForegroundTask.startService(
+        notificationTitle: 'Noesys monitoring service',
+        notificationText: 'Monitoring service is running',
+        callback: startCallback,
+      );
+    }
+  }
+
+  bool _registerReceivePort(ReceivePort? newReceivePort) {
+    if (newReceivePort == null) {
+      return false;
+    }
+
+    _closeReceivePort();
+
+    _receivePort = newReceivePort;
+    _receivePort?.listen((data) {
+      if (data is int) {
+        print('eventCount: $data');
+      } else if (data is String) {
+        if (data == 'onNotificationPressed') {
+          Navigator.of(context).pushNamed('/resume-route');
         } else {
-          print("UP: " + server.url);
+          Iterable l = json.decode(data);
+
+          List<Server> itemsList =
+              List<Server>.from(l.map((i) => Server.fromJson(i)));
+          setState(() {
+            _servers = itemsList;
+          });
         }
+      } else if (data is DateTime) {
+        print('timestamp: ${data.toString()}');
       }
     });
+
+    return _receivePort != null;
+  }
+
+  void _closeReceivePort() {
+    _receivePort?.close();
+    _receivePort = null;
   }
 
   Future<bool> _onBackPressed() async {
+    print(await FlutterForegroundTask.isRunningService);
+
     return await showDialog(
         context: context,
         builder: (BuildContext context) {
@@ -105,6 +250,7 @@ class _ListScreenState extends State<ListScreen> {
               TextButton(
                 child: Text('YES'),
                 onPressed: () {
+                  _stopForegroundTask();
                   Navigator.of(context).pop(true);
                 },
               ),
@@ -155,12 +301,13 @@ class _ListScreenState extends State<ListScreen> {
         context: context,
         builder: (BuildContext context) {
           return AlertDialog(
-            title: Text("Refresh time"),
+            backgroundColor: Colors.black12,
+            title: Text("Monitoring interval (s)"),
             content: StatefulBuilder(builder: (context, SBsetState) {
               return NumberPicker(
                   selectedTextStyle: TextStyle(color: Colors.red),
                   value: _refreshTime,
-                  minValue: 1,
+                  minValue: 10,
                   maxValue: 300,
                   onChanged: (value) {
                     SBsetState(() =>
@@ -170,20 +317,18 @@ class _ListScreenState extends State<ListScreen> {
             actions: [
               TextButton(
                 child: Text("OK"),
-                onPressed: () {
-                  setState(() {
-                    sharedPref.save("refreshTime", _refreshTime.toString());
+                onPressed: () async {
+                  await SharedPref.save("refreshTime", _refreshTime.toString());
 
-                    _timer.cancel();
-
-                    Duration xSeconds = Duration(seconds: _refreshTime);
-                    _timer = Timer.periodic(
-                      xSeconds,
-                      (Timer t) => _refresh(),
-                    );
-
-                    _refresh();
-                  });
+                  FlutterForegroundTask.updateService(
+                    foregroundTaskOptions: ForegroundTaskOptions(
+                      interval: _refreshTime * 1000,
+                      isOnceEvent: false,
+                      autoRunOnBoot: true,
+                      allowWakeLock: true,
+                      allowWifiLock: true,
+                    ),
+                  );
 
                   Navigator.of(context).pop();
                 },
@@ -207,82 +352,50 @@ class _ListScreenState extends State<ListScreen> {
     });
   }
 
-  Future<void> startNotifications() async {
-// initialise the plugin. app_icon needs to be a added as a drawable resource to the Android head project
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('noesys');
-
-    final InitializationSettings initializationSettings =
-        InitializationSettings(android: initializationSettingsAndroid);
-
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings,
-        onSelectNotification: onSelectNotification);
-
-    await flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>()?.requestPermission();
-  }
-
   @override
   void initState() {
     super.initState();
-    startNotifications();
-    loadServerList();
-    loadData();
 
-    sharedPref.read("refreshTime").then((result) {
-      if (result == null) {
-        sharedPref.save("refreshTime", _refreshTime.toString());
-      } else {
-        _refreshTime = int.parse(result);
+    Future<void> onSelectNotification(String? payload) async {
+      if (payload != null) {
+        var server = SharedPref.getServer(payload);
+
+        if (server != null) {
+          Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (context) => DetailScreen(server: server)));
+        }
+
+        print(payload);
       }
+    }
 
-      Duration xSeconds = Duration(seconds: _refreshTime);
-      _timer = Timer.periodic(
-        xSeconds,
-        (Timer t) => _refresh(),
-      );
+    startNotifications(onSelectNotification);
 
-      setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _requestPermissionForAndroid();
+      _initForegroundTask();
+      _startForegroundTask();
+
+      // You can get the previous ReceivePort without restarting the service.
+      if (await FlutterForegroundTask.isRunningService) {
+        final newReceivePort = FlutterForegroundTask.receivePort;
+        _registerReceivePort(newReceivePort);
+      }
     });
 
-    checkBatteryOpt();
+    var refresh = SharedPref.read("refreshTime");
+    if (refresh == null) {
+      SharedPref.save("refreshTime", _refreshTime.toString());
+    } else {
+      _refreshTime = int.parse(refresh);
+    }
 
-    _servers = <Server>[];
+    //checkBatteryOpt();
 
     WidgetsBinding.instance
         .addPostFrameCallback((_) => _refreshIndicatorKey.currentState?.show());
-  }
-
-  Future<void> onSelectNotification(String? payload) async {
-    if (_servers != null && payload != null) {
-      var serverFiltered =
-          _servers!.where((server) => server.nameRaw.contains(payload));
-      if (serverFiltered.length > 0) {
-        Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (context) =>
-                    DetailScreen(server: serverFiltered.first)));
-      }
-    }
-  }
-
-  Future _refresh() {
-    return _lock.synchronized(() async {
-      return _fetchData().then((serversResult) {
-        setState(() => _servers = serversResult);
-      });
-    });
-  }
-
-  Future<List<Server>> _fetchData() async {
-    List<Server> serverList = await util.refreshDataServers();
-
-    if (serverList.isNotEmpty) {
-      checkNotifications(serverList);
-    }
-
-    return serverList;
   }
 
   void showAboutScreen() {
@@ -313,10 +426,13 @@ class _ListScreenState extends State<ListScreen> {
           ),
           onPressed: () {
             Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => AddScreen()))
-                .then((value) {
+                    MaterialPageRoute(builder: (context) => ManageScreen()))
+                .then((addedNewServer) {
               setState(() {
-                _refresh();
+                if (addedNewServer == true) {
+                  var serverList = SharedPref.loadServerList();
+                  _servers = serverList;
+                }
               });
             });
           },
@@ -327,7 +443,7 @@ class _ListScreenState extends State<ListScreen> {
           enableHapticFeedback: true,
           child: IconButton(
             icon: Icon(
-              Icons.flip_camera_android_outlined,
+              Icons.track_changes,
               color: Colors.white,
             ),
             onPressed: () {
@@ -371,7 +487,7 @@ class _ListScreenState extends State<ListScreen> {
                 flex: 4,
                 child: Padding(
                   padding: EdgeInsets.only(left: 10.0),
-                  child: Text("${server.country} ${server.url}",
+                  child: Text("${server.url}",
                       style: TextStyle(color: Colors.white)),
                 ),
               )
@@ -379,11 +495,14 @@ class _ListScreenState extends State<ListScreen> {
           ),
           trailing: Column(
             children: <Widget>[
-              Text(server.statusCode.toString(),
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold)),
+              if (server.statusCode == -1 && server.enabled)
+                Icon(Icons.hourglass_bottom_rounded, color: Colors.grey)
+              else
+                Text(server.statusCode.toString(),
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold)),
               Text(server.getStatusCode(),
                   style: TextStyle(color: server.getStatusColor())),
             ],
@@ -393,9 +512,23 @@ class _ListScreenState extends State<ListScreen> {
                     context,
                     MaterialPageRoute(
                         builder: (context) => DetailScreen(server: server)))
-                .then((value) {
+                .then((returnStatus) async {
               setState(() {
-                _refresh();
+                switch (returnStatus) {
+                  case Status.DELETED:
+                    _servers.removeWhere(
+                        (element) => element.name == server.nameRaw);
+                    break;
+                  case Status.CHANGED:
+                    var xServer = SharedPref.getServer(server.nameRaw);
+                    if (xServer != null) {
+                      _servers[_servers.indexWhere(
+                              (element) => element.nameRaw == server.nameRaw)] =
+                          xServer;
+                    }
+                    break;
+                  default:
+                }
               });
             });
           },
@@ -411,13 +544,13 @@ class _ListScreenState extends State<ListScreen> {
         );
 
     final makeBody = Container(
-        child: (_servers != null && _servers!.isNotEmpty)
+        child: (_servers.isNotEmpty)
             ? ListView.builder(
                 scrollDirection: Axis.vertical,
                 shrinkWrap: true,
-                itemCount: _servers!.length,
+                itemCount: _servers.length,
                 itemBuilder: (BuildContext context, int index) {
-                  return makeCard(_servers![index]);
+                  return makeCard(_servers[index]);
                 },
               )
             : Center(
@@ -425,29 +558,27 @@ class _ListScreenState extends State<ListScreen> {
               ));
 
     return Scaffold(
-      backgroundColor: Theme.of(context).primaryColor,
-      appBar: topAppBar,
-      body: WillPopScope(
-        onWillPop: _onBackPressed,
-        child: RefreshIndicator(
-          key: _refreshIndicatorKey,
-          onRefresh: _refresh,
-          child: SafeArea(child: makeBody),
-        ),
-      ),
-    );
-  }
+        backgroundColor: Theme.of(context).primaryColor,
+        appBar: topAppBar,
+        body: WillPopScope(
+          onWillPop: _onBackPressed,
+          child: RefreshIndicator(
+            key: _refreshIndicatorKey,
+            onRefresh: () async {
+              setState(() {
+                _servers = SharedPref.loadServerList();
+              });
 
-  showNotification(String nameRaw, String channel, String message) async {
-    const AndroidNotificationDetails androidNotificationDetails =
-        AndroidNotificationDetails('problem', 'Server status',
-            channelDescription: 'Notify about server status responses',
-            importance: Importance.max,
-            priority: Priority.high,
-            ticker: 'Noesys notification');
-    const NotificationDetails notificationDetails =
-        NotificationDetails(android: androidNotificationDetails);
-    await flutterLocalNotificationsPlugin
-        .show(0, channel, message, notificationDetails, payload: nameRaw);
+              var savedList = await SharedPref.reloadServerList();
+              List<Server> checkedList =
+                  await util.refreshDataServers(savedList);
+
+              setState(() {
+                _servers = checkedList;
+              });
+            },
+            child: SafeArea(child: makeBody),
+          ),
+        ));
   }
 }

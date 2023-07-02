@@ -9,6 +9,12 @@
         android:name="${applicationName}"
         android:label="Noesys"
         android:icon="@mipmap/ic_launcher">
+
+        <!-- Add android:stopWithTask option only when necessary. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:stopWithTask="true" />
+
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTop"
@@ -20,6 +26,7 @@
                  the Android process has started. This theme is visible to the user
                  while the Flutter UI initializes. After that, this theme continues
                  to determine the Window background behind the Flutter UI. -->
+
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
@@ -27,7 +34,7 @@
 
             <meta-data
                 android:name="com.google.firebase.messaging.default_notification_icon"
-                android:resource="@drawable/noesys" />
+                android:resource="@drawable/ic_noesys" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

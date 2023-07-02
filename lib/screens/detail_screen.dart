@@ -20,10 +20,13 @@ import 'dart:async';
 import 'package:chart_sparkline/chart_sparkline.dart';
 import 'package:flutter/material.dart';
 import 'package:noesys/models/server.dart';
-import 'package:noesys/screens/edit_screen.dart';
 import 'package:noesys/utils/crawler.dart' as util;
-import 'package:noesys/utils/crawler.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
+
+import '../utils/sharedPref.dart';
+import 'manage_screen.dart';
+
+enum Status { DELETED, CHANGED, BACK }
 
 Future<void> _deleteDialog(BuildContext context, Server server) async {
   return showDialog<void>(
@@ -49,10 +52,10 @@ Future<void> _deleteDialog(BuildContext context, Server server) async {
           ),
           TextButton(
             child: Text('Delete'),
-            onPressed: () {
-              util.deleteServer(server.nameRaw);
-              Navigator.pop(context, true);
-              Navigator.pop(context, true);
+            onPressed: () async {
+              await SharedPref.deleteServer(server.nameRaw);
+              Navigator.of(context).pop();
+              Navigator.pop(context, Status.DELETED);
             },
           ),
         ],
@@ -78,19 +81,21 @@ class _DetailScreen extends State<DetailScreen> {
   List<double> _data = [];
   bool _alarm = false;
 
+
   @override
   void initState() {
     _data = [server.responseTime + 0.0, server.responseTime + 0.1];
-    if (server.responseTime > 0) {
-      _alarm = false;
-    } else {
+    if (server.notifiedOn != null && server.acknowledgedOn == null) {
       _alarm = true;
+    } else {
+      _alarm = false;
     }
     super.initState();
 
-    const autoRefresh = const Duration(seconds: 1);
+    const refreshDelay = const Duration(seconds: 1);
+
     _timerDetail = Timer.periodic(
-      autoRefresh,
+      refreshDelay,
       (Timer t) => _refresh(),
     );
   }
@@ -101,28 +106,28 @@ class _DetailScreen extends State<DetailScreen> {
     super.dispose();
   }
 
-  Future _refresh() {
-    return _fetchData().then((_server) {
-      setState(() => server = _server);
+  Future<void> _refresh() async {
+    var _server = await _fetchData();
+    final List<double> dataResult = List.from(_data)
+      ..add(_server.responseTime + 0.0);
 
-      final List<double> dataResult = List.from(_data)
-        ..add(_server.responseTime + 0.0);
+    if (this.mounted) {
+      server = _server;
       setState(() => _data = dataResult);
-    });
+    }
   }
 
-  void alarmOnPressed() {
-    if (server.notifyOn != null) {
-      server.notifyOn!["OK"] = true;
-      server.notifyOn!["0"] = false;
-    }
+  void ackOnPressed() {
+    server.acknowledgedOn = DateTime.now();
+    server.notifiedOn = null;
 
-    updateServer(server.nameRaw, server);
+    SharedPref.updateServer(server.nameRaw, server);
     setState(() => _alarm = false);
   }
 
+
   Future<Server> _fetchData() async {
-    return util.refreshDataServer(server.nameRaw);
+    return util.refreshDataServer(server);
   }
 
   @override
@@ -142,11 +147,15 @@ class _DetailScreen extends State<DetailScreen> {
             Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (context) => EditScreen(server: server)))
+                        builder: (context) => ManageScreen(server: server)))
                 .then((value) {
-              setState(() {
-                _refresh();
-              });
+                  if (value == true){
+                    Navigator.pop(context, Status.CHANGED);
+                  }
+                  else{
+                    Navigator.pop(context, Status.BACK);
+                  }
+
             });
             // do something
           },
@@ -235,12 +244,12 @@ class _DetailScreen extends State<DetailScreen> {
     final alarmButton = Padding(
         padding: EdgeInsets.symmetric(vertical: 16.0),
         child: ElevatedButton(
-          onPressed: alarmOnPressed, //() => {},
+          onPressed: ackOnPressed, //() => {},
           style: ElevatedButton.styleFrom(
             backgroundColor: Color.fromRGBO(232, 53, 83, 1.0),
           ),
           child:
-              Text("NOTIFY WHEN ONLINE", style: TextStyle(color: Colors.white)),
+              Text("Acknowledgement", style: TextStyle(color: Colors.white)),
         ));
 
     final sparklineContent = Sparkline(
@@ -264,7 +273,7 @@ class _DetailScreen extends State<DetailScreen> {
             bottomContentText,
             alarmButton,
             Text(
-              'If you enable the alarm, when the server returns to the online state, you will be notified.',
+              'Until you acknowledge last alert no further notifications will be issued in relation to this server.',
               textAlign: TextAlign.center,
             ),
           ];

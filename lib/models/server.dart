@@ -21,65 +21,84 @@ import 'dart:ui' show Color;
 import 'package:flutter/material.dart' show Colors, Icons;
 import 'package:flutter/widgets.dart' show Icon;
 import 'package:noesys/screens/status_codes.dart';
+import 'package:json_annotation/json_annotation.dart';
 
+part 'server.g.dart';
+
+@JsonSerializable()
 class Server {
-  Server(this.name, this.nameRaw, this.url, this.country,
+  Server(this.name, this.nameRaw, this.url, this.topic,
       [this.statusCode = 0,
       this.responseTime = 0,
       this.notify = true,
-      this.notifyOn]);
+      this.notifyIn,
+      this.enabled = true]);
 
   String name;
   String nameRaw;
   String url;
-  String country;
+  String topic;
 
   int up = -1;
   int down = -1;
 
-  int statusCode = 0;
+  DateTime? acknowledgedOn;
+  DateTime? notifiedOn;
+
+  int statusCode = -1;
   int responseTime = 0;
   bool notify;
-  Map? notifyOn = {
+  bool enabled = true;
+  Map? notifyIn = {
     "OK": false,
     "4xx": true,
     "5xx": true,
     "0": true,
   };
 
-  Server.fromJson(Map<String, dynamic> json)
-      : name = json['name'],
-        nameRaw = json['nameRaw'],
-        url = json['url'],
-        country = json['country'],
-        notify = json['notify'],
-        notifyOn = json['notifyOn'];
+  /// A necessary factory constructor for creating a new User instance
+  /// from a map. Pass the map to the generated `_$UserFromJson()` constructor.
+  /// The constructor is named after the source class, in this case, User.
+  factory Server.fromJson(Map<String, dynamic> json) => _$ServerFromJson(json);
 
-  Map<String, dynamic> toJson() => {
-        'name': name,
-        'nameRaw': nameRaw,
-        'url': url,
-        'country': country,
-        'notify': notify,
-        'notifyOn': notifyOn
-      };
+  /// `toJson` is the convention for a class to declare support for serialization
+  /// to JSON. The implementation simply calls the private, generated
+  /// helper method `_$UserToJson`.
+  Map<String, dynamic> toJson() => _$ServerToJson(this);
 
   Icon getStatusIcon() {
-    return (statusCode == 0 || statusCode >= 400 && statusCode < 600)
-        ? Icon(Icons.cancel, color: Color.fromRGBO(232, 53, 83, 1.0))
-        : Icon(Icons.check_circle, color: Colors.green[400]);
+    if (enabled) {
+      if (statusCode == -1) {
+        return Icon(Icons.timelapse, color: Colors.grey);
+      }
+      if (statusCode == 0) {
+        return Icon(Icons.timer_off, color: Colors.red);
+      } else if (statusCode >= 500 && statusCode < 600) {
+        return Icon(Icons.cancel, color: Color.fromRGBO(232, 53, 83, 1.0));
+      } else if (statusCode >= 400 && statusCode < 500) {
+        return Icon(Icons.cancel, color: Colors.amberAccent);
+      } else {
+        return Icon(Icons.check_circle, color: Colors.green[400]);
+      }
+    } else {
+      return Icon(Icons.stop_circle, color: Colors.grey[400]);
+    }
   }
 
   int getResponseTime() {
     return responseTime;
   }
 
-  double getUptime() {
-    return 1.0;
+  double? getUptime() {
+    if (this.enabled) {
+      return null;
+    } else {
+      return 0.0;
+    }
   }
 
   String getStatusCode() {
-    return getPhrase(statusCode);
+    return getPhrase(statusCode, enabled);
   }
 
   String getUrl() {
